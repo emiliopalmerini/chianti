@@ -31,6 +31,48 @@ func newTestRouter(t *testing.T, production bool) http.Handler {
 	return r
 }
 
+func TestCSPOverride_renders(t *testing.T) {
+	r := httpx.NewRouter(httpx.ServerDeps{
+		Production: false,
+		Logger:     slog.New(slog.NewTextHandler(io.Discard, nil)),
+		CSP: &httpx.CSP{
+			DefaultSrc: []string{"'self'"},
+			ScriptSrc:  []string{"'self'", "https://unpkg.com", "https://cdnjs.cloudflare.com"},
+			ImgSrc:     []string{"'self'", "data:", "https://upload.wikimedia.org"},
+		},
+	})
+	r.Get("/x", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(200) })
+
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/x", nil))
+
+	got := rec.Header().Get("Content-Security-Policy")
+	for _, want := range []string{
+		"default-src 'self'",
+		"script-src 'self' https://unpkg.com https://cdnjs.cloudflare.com",
+		"img-src 'self' data: https://upload.wikimedia.org",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("CSP missing %q in %q", want, got)
+		}
+	}
+	// Default frame-src not present when override does not include it.
+	if strings.Contains(got, "youtube-nocookie") {
+		t.Errorf("override should drop default frame-src: %q", got)
+	}
+}
+
+func TestCSPString_omitsEmptyDirectives(t *testing.T) {
+	c := httpx.CSP{
+		DefaultSrc: []string{"'self'"},
+		ScriptSrc:  nil,
+	}
+	got := c.String()
+	if got != "default-src 'self'" {
+		t.Fatalf("got %q", got)
+	}
+}
+
 func TestNewRouterSetsSecurityHeaders(t *testing.T) {
 	for _, prod := range []bool{false, true} {
 		t.Run(map[bool]string{false: "dev", true: "prod"}[prod], func(t *testing.T) {

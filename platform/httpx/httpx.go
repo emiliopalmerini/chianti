@@ -25,6 +25,47 @@ import (
 type ServerDeps struct {
 	Production bool
 	Logger     *slog.Logger
+	// CSP, when non-nil, overrides the default Content-Security-Policy
+	// header. Use it to allowlist external CDNs (script/style/img) without
+	// forking the platform middleware. nil keeps the conservative default.
+	CSP *CSP
+}
+
+// CSP is a structured Content-Security-Policy. Each field is a list of
+// source expressions; empty fields are omitted from the rendered header.
+// 'self' is a string literal — quote it as `"'self'"` in callers.
+type CSP struct {
+	DefaultSrc []string
+	ScriptSrc  []string
+	StyleSrc   []string
+	ImgSrc     []string
+	ConnectSrc []string
+	FontSrc    []string
+	FrameSrc   []string
+	MediaSrc   []string
+	ObjectSrc  []string
+}
+
+// String renders the CSP as a single-line directive string suitable for the
+// Content-Security-Policy response header.
+func (c CSP) String() string {
+	parts := make([]string, 0, 9)
+	add := func(name string, vals []string) {
+		if len(vals) == 0 {
+			return
+		}
+		parts = append(parts, name+" "+strings.Join(vals, " "))
+	}
+	add("default-src", c.DefaultSrc)
+	add("script-src", c.ScriptSrc)
+	add("style-src", c.StyleSrc)
+	add("img-src", c.ImgSrc)
+	add("connect-src", c.ConnectSrc)
+	add("font-src", c.FontSrc)
+	add("frame-src", c.FrameSrc)
+	add("media-src", c.MediaSrc)
+	add("object-src", c.ObjectSrc)
+	return strings.Join(parts, "; ")
 }
 
 // NewRouter builds the base chi router with the platform middleware
@@ -39,7 +80,7 @@ func NewRouter(deps ServerDeps) chi.Router {
 	r.Use(requestLogger(deps.Logger))
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.Compress(5))
-	r.Use(securityHeaders(deps.Production))
+	r.Use(securityHeaders(deps.Production, deps.CSP))
 	return r
 }
 
@@ -64,15 +105,30 @@ func requestLogger(logger *slog.Logger) func(http.Handler) http.Handler {
 	}
 }
 
-func securityHeaders(production bool) func(http.Handler) http.Handler {
+// defaultCSP returns the conservative platform-default CSP.
+func defaultCSP() CSP {
+	return CSP{
+		DefaultSrc: []string{"'self'"},
+		ImgSrc:     []string{"'self'", "data:"},
+		StyleSrc:   []string{"'self'", "'unsafe-inline'"},
+		ScriptSrc:  []string{"'self'", "'unsafe-inline'", "'unsafe-eval'"},
+		FrameSrc:   []string{"https://www.youtube-nocookie.com"},
+	}
+}
+
+func securityHeaders(production bool, override *CSP) func(http.Handler) http.Handler {
+	csp := defaultCSP()
+	if override != nil {
+		csp = *override
+	}
+	cspHeader := csp.String()
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			h := w.Header()
 			h.Set("X-Content-Type-Options", "nosniff")
 			h.Set("X-Frame-Options", "DENY")
 			h.Set("Referrer-Policy", "strict-origin-when-cross-origin")
-			h.Set("Content-Security-Policy",
-				"default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; frame-src https://www.youtube-nocookie.com")
+			h.Set("Content-Security-Policy", cspHeader)
 			if production {
 				h.Set("Strict-Transport-Security", "max-age=63072000; includeSubDomains")
 			}
