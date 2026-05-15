@@ -32,7 +32,7 @@ pacchetto di ITdG:
 - `ValidFiscalCode(s)`: 16 alfanum, case-insensitive, sintattico.
 - `ValidCAP(s)`: 5 cifre.
 - `ValidProvince(s)`: 110 codici provincia ISO 3166-2:IT.
-- `FormatEuroCents(c)`: cents → "€ N,NN".
+- `FormatEuroCents(c)`: cents → "€ N,NN" oppure "-€ N,NN".
 - `ValidPhone(s)`: 6-20 char, plus opzionale iniziale, glifi di
   presentazione (spazio, punto, dash, parentesi).
 
@@ -48,7 +48,8 @@ mancano:
 
 1. `TestFormatDate`: una data di riferimento ritorna la stringa attesa.
 2. `TestFormatDateOnly`: stessa data, senza componente ora.
-3. `TestFormatEuroCents`: tabella di casi inclusi 0, 150, 4200, 99.
+3. `TestFormatEuroCents`: tabella di casi inclusi 0, 150, 4200, 99
+   e importi negativi.
 4. `TestValidPhone`: tabella di casi accettati e rifiutati (numero
    senza prefisso, internazionale, troppo corto, troppo lungo, plus
    non in prima posizione, char invalido).

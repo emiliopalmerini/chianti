@@ -77,12 +77,14 @@ var italianProvinces = map[string]struct{}{
 // FormatEuroCents formats an amount in cents as Italian currency, e.g.
 // 4200 → "€ 42,00", 150 → "€ 1,50", 0 → "€ 0,00".
 func FormatEuroCents(cents int) string {
+	sign := ""
+	if cents < 0 {
+		sign = "-"
+		cents = -cents
+	}
 	euros := cents / 100
 	remainder := cents % 100
-	if remainder < 0 {
-		remainder = -remainder
-	}
-	return fmt.Sprintf("€ %d,%02d", euros, remainder)
+	return fmt.Sprintf("%s€ %d,%02d", sign, euros, remainder)
 }
 
 // ValidPhone reports whether s looks like a plausible phone number: 6–20

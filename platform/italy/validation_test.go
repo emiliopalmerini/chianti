@@ -90,6 +90,9 @@ func TestFormatEuroCents(t *testing.T) {
 		150:  "€ 1,50",
 		4200: "€ 42,00",
 		9999: "€ 99,99",
+		-1:   "-€ 0,01",
+		-50:  "-€ 0,50",
+		-150: "-€ 1,50",
 	}
 	for cents, want := range cases {
 		if got := FormatEuroCents(cents); got != want {
@@ -103,16 +106,16 @@ func TestValidPhone(t *testing.T) {
 		in   string
 		want bool
 	}{
-		{"3331234567", true},          // mobile italiano
-		{"+39 333 123 4567", true},    // internazionale con glifi
-		{"(02) 1234.567", true},       // fisso con presentazione
-		{"333-123-4567", true},        // dash
-		{"  3331234567  ", true},      // trim
-		{"123", false},                // troppo corto
+		{"3331234567", true},               // mobile italiano
+		{"+39 333 123 4567", true},         // internazionale con glifi
+		{"(02) 1234.567", true},            // fisso con presentazione
+		{"333-123-4567", true},             // dash
+		{"  3331234567  ", true},           // trim
+		{"123", false},                     // troppo corto
 		{"12345678901234567890123", false}, // troppo lungo
-		{"abc1234567", false},         // chars invalidi
-		{"333+1234567", false},        // plus non in prima posizione
-		{"", false},                   // vuoto
+		{"abc1234567", false},              // chars invalidi
+		{"333+1234567", false},             // plus non in prima posizione
+		{"", false},                        // vuoto
 	}
 	for _, tc := range cases {
 		if got := ValidPhone(tc.in); got != tc.want {
