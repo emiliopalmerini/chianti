@@ -28,21 +28,22 @@ Ogni sito ha:
 - I propri admin (seed via `ADMIN_SEEDS`).
 - Il proprio dominio di prenotazione (Evento ≠ Servizio ≠ Viaggio).
 
-Quello che invece tutti i siti condividono per natura tecnica:
+Quello che invece tutti i siti condividono per natura architetturale:
 
-- Stack: Go 1.25+, chi router, scs sessions, html/template, TailwindCSS
-  v4, HTMX, Alpine.js.
 - Pattern di errore tipato (`apperror`).
 - Bus eventi in-process per decoupling fra slice.
-- Sessioni admin sqlite-backed + sessioni form in-memory.
-- Rate limiter, CSRF helper, request logger.
+- Clock testabili e generazione ID coerente.
+- Confine fra dominio, porte e adapter.
+- Helper HTTP basati su `net/http` quando sono davvero trasversali.
+- Convenzioni per transazioni, nullable e timestamp su `database/sql`.
 - Validatori italiani (CF, CAP, telefono).
-- Loader env con validazione production.
+- Loader env e generazione chiavi.
 - Runner migrations numerate.
-- Client mail (Resend + noop) e template engine.
-- Schema admin_users + sessioni admin.
-- Schema audit_entries + recorder che ascolta il bus.
-- Schema template_email + dispatcher.
+- Contratti per mailer e altri servizi esterni.
+
+Router concreti, session manager, CSRF middleware, driver SQLite, template
+engine applicativi, schemi admin/audit/email e wiring di produzione restano
+decisioni dei consumer salvo ADR esplicita.
 
 Senza un meccanismo di condivisione esplicito, le opzioni sono due:
 copia-incolla (drift garantito a 6-12 mesi) oppure forzare un
@@ -54,9 +55,10 @@ Entrambe sono peggio di un kit estratto bene.
 ### Cos'è chianti
 
 Chianti è un **modulo Go separato** che contiene esclusivamente i
-mattoncini infrastrutturali e di kernel condivisi fra i siti. Vive in
-un repo git dedicato (`github.com/emiliopalmerini/chianti`, privato).
-Non contiene logica di dominio.
+mattoncini architetturali, infrastrutturali leggeri e di kernel condivisi fra
+i siti. Vive in un repo git dedicato
+(`github.com/emiliopalmerini/chianti`, privato). Non contiene logica di
+dominio e non è un bundle di adapter concreti.
 
 I siti consumer (ITdG, giadataribelli, travels-and-dragons) lo
 importano come dipendenza Go normale. Chianti non conosce i suoi
@@ -105,7 +107,9 @@ normale.
 ### Scope iniziale (primo round di estrazione)
 
 Il primo round include solo i moduli **chiaramente generici e a basso
-rischio**, in due livelli:
+rischio**, in due livelli. ADR-013 restringe la direzione futura: quando una
+voce qui implica una dipendenza concreta, preferire contratti e helper stdlib
+oppure lasciare l'adapter al consumer.
 
 **Tier 1 (utility pure, zero I/O):**
 
@@ -115,16 +119,16 @@ rischio**, in due livelli:
 - `kernel/slug`: helper per URL slug.
 - `kernel/eventbus`: pub/sub in-process.
 
-**Tier 2 (infrastruttura HTTP, mail, config, sessioni):**
+**Tier 2 (infrastruttura leggera e contratti):**
 
 - `platform/italy`: validatori CF, CAP, telefono.
-- `platform/httpx`: router builder, rate limiter, CSRF helper,
-  request logger.
-- `platform/session`: costruttori scs (admin sqlite-backed, form
-  in-memory).
-- `platform/email`: client Resend, noop mailer, interfaccia template
-  service.
-- `platform/config`: loader env con validazione produzione.
+- `platform/httpx`: middleware `net/http`, security headers, request logger,
+  rendering errori.
+- `platform/session`: solo contratti o convenzioni se necessari; adapter
+  concreti nei consumer.
+- `platform/email`: interfaccia `Sender` e adapter HTTP stdlib se il confine
+  resta stretto.
+- `platform/config`: helper env e generazione chiavi.
 - `platform/migrations`: runner che applica file `.up.sql`/`.down.sql`
   numerati. I file SQL restano nei singoli siti.
 
@@ -164,9 +168,14 @@ ITdG. Una cosa diventa candidata al kit quando:
 2. La sua API non incorpora decisioni di dominio specifico.
 3. C'è un terzo consumer plausibile (anche solo "il prossimo sito")
    che la userebbe senza modifiche.
+4. Condividerla rafforza un confine architetturale, non solo nasconde wiring
+   ripetuto.
 
 Questo riduce il rischio di astrarre con un campione di uno camuffato
 da due.
+
+ADR-013 aggiunge una preferenza esplicita: contratti, helper stdlib e pattern
+testati sono candidati migliori degli adapter concreti con dipendenze terze.
 
 ### Strategia di migrazione di ITdG verso chianti
 

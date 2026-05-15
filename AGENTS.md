@@ -1,18 +1,25 @@
 # Agent Notes
 
-`chianti` is a shared Go kit for small to medium shop sites for Italian
-freelancers. It contains only reusable infrastructure and kernel building
-blocks. It must not contain site domain logic, public UI, admin UI, static
-assets, or consumer SQL schemas.
+`chianti` is a shared Go architecture kit for small to medium shop sites for
+Italian freelancers. Its main job is to enforce the way these sites are built:
+small contracts, kernel primitives, stdlib-friendly helpers, and tested
+patterns. It is not a convenience bundle for third-party infrastructure
+integrations. It must not contain site domain logic, public UI, admin UI,
+static assets, consumer SQL schemas, or consumer-specific wiring.
 
 ## Goals
 
 - Keep the public surface small, stable, and boring.
 - Preserve the boundary from `docs/adr/001-scope-e-strategia-multisito.md`.
+- Preserve the architecture-kit direction from
+  `docs/adr/013-kit-di-enforcement-architetturale.md`.
 - Prefer concrete shared needs from multiple sites over generic-looking
   abstractions from a single consumer.
 - Keep consumers independent. `chianti` must not know any specific site,
   business, brand, or consumer implementation.
+- Optimize for architecture enforcement over boilerplate reduction. A little
+  duplicated adapter wiring in consumer sites is acceptable when it keeps the
+  shared kit simpler and more explicit.
 - Preserve correctness before convenience. A breaking pre-1.0 change is fine
   when it makes the kit simpler or more correct, but document important changes.
 
@@ -20,8 +27,13 @@ assets, or consumer SQL schemas.
 
 - `kernel/*` packages are pure or near-pure building blocks such as typed
   errors, clocks, IDs, and the in-process event bus.
-- `platform/*` packages are infrastructure adapters and helpers such as HTTP
-  plumbing, config, SQLite migrations, sessions, email, and Italian validators.
+- `platform/*` packages are infrastructure contracts and helpers such as HTTP
+  middleware primitives, config helpers, database/sql helpers, migration
+  runners, email ports, and Italian validators.
+- Consumers own concrete third-party integrations such as routers, SQLite
+  drivers, session managers, CSRF libraries, authentication wiring, and
+  production service adapters unless an ADR explicitly accepts that dependency
+  inside `chianti`.
 - Domain slices stay in consumer sites. Do not add booking, event, service,
   trip, payment, document, audit, auth, or admin-product behavior here unless
   an ADR explicitly promotes it.
@@ -34,9 +46,12 @@ assets, or consumer SQL schemas.
 ## Quality Rules
 
 - Use normal Go package boundaries. Domain defines ports in consumer sites;
-  `chianti` provides infrastructure pieces those sites can import.
+  `chianti` provides contracts and helpers those sites can import.
 - Keep APIs narrow. Do not leak implementation details from platform packages
   into caller-facing types without a real need.
+- Do not add a third-party dependency just to hide consumer boilerplate. If a
+  package needs a concrete adapter, prefer defining a small interface or helper
+  and keep the adapter in the consumer.
 - Avoid flags, fallbacks, and variants for hypothetical future sites. Add them
   only when a real consumer needs them.
 - Comment important behavior where the invariant is not obvious locally:
@@ -62,13 +77,13 @@ assets, or consumer SQL schemas.
 - `kernel/eventbus`: synchronous in-process pub/sub with handler isolation.
 - `kernel/id`: ID types and UUID generation.
 - `platform/config`: environment loading and production validation.
-- `platform/database`: SQLite database helpers.
-- `platform/email`: mailer interfaces and adapters.
-- `platform/httpx`: chi router setup, middleware, CSRF, rate limiting, and
-  HTTP error rendering.
+- `platform/database`: database/sql helpers and shared query conventions.
+- `platform/email`: mailer interfaces and stdlib HTTP adapters where accepted.
+- `platform/httpx`: net/http middleware primitives and HTTP error rendering.
 - `platform/italy`: Italian data validators.
 - `platform/migrations`: numbered SQL migration runner.
-- `platform/session`: shared session constructors.
+- `platform/session`: session contracts only if kept; concrete session manager
+  adapters belong in consumers by default.
 - `docs/adr`: architectural decisions. Read the relevant ADR before changing a
   package boundary.
 

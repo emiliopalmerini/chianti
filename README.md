@@ -1,8 +1,13 @@
 # chianti
 
-Kit Go condiviso per i siti di `~/src/people-site/`. Contiene
-esclusivamente mattoncini infrastrutturali e di kernel: nessuna logica
-di dominio.
+Kit Go condiviso per i siti di `~/src/people-site/`. Il suo scopo è
+rendere esplicita e riusabile l'architettura che voglio usare nei siti:
+contratti piccoli, primitivi di kernel, helper stdlib-friendly e pattern
+testati.
+
+`chianti` non è un bundle di integrazioni. I siti consumer restano
+responsabili dei loro adapter concreti: router, driver SQLite, sessioni,
+CSRF, UI, asset, schemi SQL e wiring applicativo.
 
 ## Status
 
@@ -12,7 +17,20 @@ nel [`CHANGELOG.md`](CHANGELOG.md).
 ## Scope
 
 Vedi [`docs/adr/001-scope-e-strategia-multisito.md`](docs/adr/001-scope-e-strategia-multisito.md)
-per il confine, la rule of three, e la roadmap di estrazione.
+per il confine multi-sito originale e
+[`docs/adr/013-kit-di-enforcement-architetturale.md`](docs/adr/013-kit-di-enforcement-architetturale.md)
+per la direzione attuale: `chianti` deve enforceare architettura, non
+massimizzare la riduzione del boilerplate.
+
+In pratica:
+
+- `kernel/*` contiene building block puri o quasi puri.
+- `platform/*` contiene helper e contratti infrastrutturali che non
+  incorporano scelte di dominio o dipendenze concrete non necessarie.
+- Le integrazioni con librerie terze vivono nei consumer, salvo ADR
+  esplicita che accetti il costo e il confine.
+- Le slice di dominio, le UI, gli asset e gli schemi SQL restano sempre
+  nei consumer.
 
 ## Dev locale cross-repo
 
