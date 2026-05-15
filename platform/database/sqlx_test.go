@@ -69,6 +69,30 @@ func TestIsUniqueConstraint_MatchesAndFiltersByNeedle(t *testing.T) {
 	}
 }
 
+func TestIsUniqueConstraint_MatchesRealSQLiteError(t *testing.T) {
+	db, err := database.Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec("CREATE TABLE users (email TEXT UNIQUE)"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec("INSERT INTO users(email) VALUES ('a@example.com')"); err != nil {
+		t.Fatal(err)
+	}
+	_, err = db.Exec("INSERT INTO users(email) VALUES ('a@example.com')")
+	if err == nil {
+		t.Fatal("expected unique constraint error, got nil")
+	}
+	if !database.IsUniqueConstraint(err, "users.email") {
+		t.Fatalf("expected typed unique match, got %v", err)
+	}
+	if database.IsUniqueConstraint(err, "users.name") {
+		t.Fatal("expected column filter to reject non-matching column")
+	}
+}
+
 func TestIsForeignKeyViolation_DetectsTypicalMessage(t *testing.T) {
 	if !database.IsForeignKeyViolation(errors.New("FOREIGN KEY constraint failed")) {
 		t.Error("expected FK match")
@@ -78,6 +102,27 @@ func TestIsForeignKeyViolation_DetectsTypicalMessage(t *testing.T) {
 	}
 	if database.IsForeignKeyViolation(errors.New("UNIQUE failed")) {
 		t.Error("non-FK error must not match")
+	}
+}
+
+func TestIsForeignKeyViolation_MatchesRealSQLiteError(t *testing.T) {
+	db, err := database.Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec("CREATE TABLE parents (id INTEGER PRIMARY KEY)"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec("CREATE TABLE children (parent_id INTEGER REFERENCES parents(id))"); err != nil {
+		t.Fatal(err)
+	}
+	_, err = db.Exec("INSERT INTO children(parent_id) VALUES (42)")
+	if err == nil {
+		t.Fatal("expected foreign key error, got nil")
+	}
+	if !database.IsForeignKeyViolation(err) {
+		t.Fatalf("expected typed foreign-key match, got %v", err)
 	}
 }
 

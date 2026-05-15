@@ -257,3 +257,35 @@ func TestRenderErrorJSON(t *testing.T) {
 		}
 	})
 }
+
+func TestRenderErrorDoesNotLeakInternalDetail(t *testing.T) {
+	err := apperror.NotFound("event", "internal-id-123")
+
+	t.Run("plain", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/page", nil)
+		rec := httptest.NewRecorder()
+		httpx.RenderError(rec, req, err)
+
+		body := rec.Body.String()
+		if strings.Contains(body, "internal-id-123") {
+			t.Fatalf("response leaked internal detail: %q", body)
+		}
+		if !strings.Contains(body, "event non trovato") {
+			t.Fatalf("response missing public message: %q", body)
+		}
+	})
+
+	t.Run("json", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/page", nil)
+		rec := httptest.NewRecorder()
+		httpx.RenderError(rec, req, err)
+
+		body := rec.Body.String()
+		if strings.Contains(body, "internal-id-123") {
+			t.Fatalf("JSON response leaked internal detail: %q", body)
+		}
+		if !strings.Contains(body, "event non trovato") {
+			t.Fatalf("JSON response missing public message: %q", body)
+		}
+	})
+}

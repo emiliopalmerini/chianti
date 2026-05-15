@@ -58,7 +58,7 @@ chiamata.
 package migrations
 
 // Run applies pending .up.sql files from fsys[dir] to db, in
-// lexicographic order, in a transaction per file. Each applied
+// numeric version order, in a transaction per file. Each applied
 // version is recorded in schema_migrations. Re-running is
 // idempotent. The version is parsed as the prefix before the first
 // underscore: e.g. "000003_documents.up.sql" -> version 3.

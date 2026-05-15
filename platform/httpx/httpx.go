@@ -228,22 +228,24 @@ func BucketLimiter(rps float64, burst int) func(http.Handler) http.Handler {
 func RenderError(w http.ResponseWriter, r *http.Request, err error) {
 	status := http.StatusInternalServerError
 	msg := "errore interno"
-	switch {
-	case apperror.Is(err, apperror.KindNotFound):
-		status = http.StatusNotFound
-		msg = err.Error()
-	case apperror.Is(err, apperror.KindValidation):
-		status = http.StatusUnprocessableEntity
-		msg = err.Error()
-	case apperror.Is(err, apperror.KindConflict):
-		status = http.StatusConflict
-		msg = err.Error()
-	case apperror.Is(err, apperror.KindUnauthorized):
-		status = http.StatusUnauthorized
-		msg = err.Error()
-	case apperror.Is(err, apperror.KindForbidden):
-		status = http.StatusForbidden
-		msg = err.Error()
+	var appErr *apperror.Error
+	if errors.As(err, &appErr) {
+		msg = appErr.Msg
+		switch appErr.Kind {
+		case apperror.KindNotFound:
+			status = http.StatusNotFound
+		case apperror.KindValidation:
+			status = http.StatusUnprocessableEntity
+		case apperror.KindConflict:
+			status = http.StatusConflict
+		case apperror.KindUnauthorized:
+			status = http.StatusUnauthorized
+		case apperror.KindForbidden:
+			status = http.StatusForbidden
+		default:
+			status = http.StatusInternalServerError
+			msg = "errore interno"
+		}
 	}
 
 	if wantsJSON(r) {

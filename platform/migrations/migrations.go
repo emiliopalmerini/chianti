@@ -1,5 +1,5 @@
 // Package migrations applies numbered .up.sql files from a caller-supplied
-// fs.FS in lexicographic order, inside a transaction per file. Each applied
+// fs.FS in numeric version order, inside a transaction per file. Each applied
 // version is recorded in schema_migrations; re-running Run is a no-op once a
 // version is marked applied.
 package migrations
@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-// Run applies pending .up.sql files from fsys[dir] to db, in lexicographic
+// Run applies pending .up.sql files from fsys[dir] to db, in numeric version
 // order, in a transaction per file. Each applied version is recorded in
 // schema_migrations. Re-running is idempotent. The version is parsed as the
 // prefix before the first underscore: e.g. "000003_documents.up.sql" -> 3.
@@ -73,6 +73,7 @@ func collectPending(fsys fs.FS, dir string, applied map[int]bool) ([]migration, 
 		return nil, fmt.Errorf("read %s: %w", dir, err)
 	}
 	var all []migration
+	seen := map[int]string{}
 	for _, e := range entries {
 		name := e.Name()
 		if !strings.HasSuffix(name, ".up.sql") {
@@ -85,6 +86,10 @@ func collectPending(fsys fs.FS, dir string, applied map[int]bool) ([]migration, 
 		if applied[v] {
 			continue
 		}
+		if prev, ok := seen[v]; ok {
+			return nil, fmt.Errorf("duplicate migration version %d: %s and %s", v, prev, name)
+		}
+		seen[v] = name
 		body, err := fs.ReadFile(fsys, dir+"/"+name)
 		if err != nil {
 			return nil, fmt.Errorf("read %s: %w", name, err)

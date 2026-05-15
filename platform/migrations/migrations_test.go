@@ -4,6 +4,7 @@ import (
 	"embed"
 	"io/fs"
 	"sort"
+	"strings"
 	"testing"
 	"testing/fstest"
 
@@ -117,7 +118,7 @@ func TestRunFailsOnMalformedFilename(t *testing.T) {
 	}
 }
 
-func TestRunAppliesInLexicographicOrder(t *testing.T) {
+func TestRunAppliesInNumericVersionOrder(t *testing.T) {
 	db := openMem(t)
 
 	mfs := fstest.MapFS{
@@ -148,5 +149,24 @@ func TestRunAppliesInLexicographicOrder(t *testing.T) {
 	}
 	if len(versions) != 3 || versions[0] != 1 || versions[1] != 2 || versions[2] != 3 {
 		t.Errorf("expected [1 2 3], got %v", versions)
+	}
+}
+
+func TestRunFailsBeforeApplyingDuplicatePendingVersions(t *testing.T) {
+	db := openMem(t)
+	mfs := fstest.MapFS{
+		"sql/000001_a.up.sql":     &fstest.MapFile{Data: []byte("CREATE TABLE a (id INTEGER PRIMARY KEY);")},
+		"sql/000001_again.up.sql": &fstest.MapFile{Data: []byte("CREATE TABLE should_not_exist (id INTEGER PRIMARY KEY);")},
+	}
+
+	err := migrations.Run(db.DB, mfs, "sql")
+	if err == nil {
+		t.Fatal("expected duplicate version error, got nil")
+	}
+	if !strings.Contains(err.Error(), "duplicate migration version 1") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, err := db.Exec("SELECT id FROM a"); err == nil {
+		t.Fatal("migration applied before duplicate preflight failed")
 	}
 }

@@ -9,6 +9,8 @@ package config
 import (
 	"crypto/rand"
 	"encoding/base64"
+	"fmt"
+	"io"
 	"os"
 	"strings"
 )
@@ -25,10 +27,17 @@ func GetEnv(key, def string) string {
 // RandomKey returns a 32-byte random key, base64-encoded with stdlib
 // StdEncoding (44 chars). Suitable as a CSRF key, JWT signing key, or
 // session secret.
-func RandomKey() string {
+func RandomKey() (string, error) {
+	return RandomKeyWithSource(rand.Reader)
+}
+
+// RandomKeyWithSource is RandomKey with an injectable random source.
+func RandomKeyWithSource(r io.Reader) (string, error) {
 	buf := make([]byte, 32)
-	_, _ = rand.Read(buf)
-	return base64.StdEncoding.EncodeToString(buf)
+	if _, err := io.ReadFull(r, buf); err != nil {
+		return "", fmt.Errorf("config: generate random key: %w", err)
+	}
+	return base64.StdEncoding.EncodeToString(buf), nil
 }
 
 // AdminSeed is one entry of the ADMIN_SEEDS env var. The expected env

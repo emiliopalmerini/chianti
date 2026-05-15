@@ -6,7 +6,10 @@ package database
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"strings"
+
+	"github.com/mattn/go-sqlite3"
 )
 
 // TimeFormat is the canonical on-disk representation for every time column
@@ -59,16 +62,21 @@ func IsUniqueConstraint(err error, needles ...string) bool {
 	if err == nil {
 		return false
 	}
+	var sqliteErr sqlite3.Error
+	if errors.As(err, &sqliteErr) {
+		if sqliteErr.Code != sqlite3.ErrConstraint {
+			return false
+		}
+		if sqliteErr.ExtendedCode != sqlite3.ErrConstraintUnique && sqliteErr.ExtendedCode != sqlite3.ErrConstraintPrimaryKey {
+			return false
+		}
+		return containsAll(err.Error(), needles)
+	}
 	msg := err.Error()
 	if !strings.Contains(msg, "UNIQUE") {
 		return false
 	}
-	for _, n := range needles {
-		if !strings.Contains(msg, n) {
-			return false
-		}
-	}
-	return true
+	return containsAll(msg, needles)
 }
 
 // IsForeignKeyViolation reports whether err is a sqlite FOREIGN KEY
@@ -77,7 +85,20 @@ func IsForeignKeyViolation(err error) bool {
 	if err == nil {
 		return false
 	}
+	var sqliteErr sqlite3.Error
+	if errors.As(err, &sqliteErr) {
+		return sqliteErr.Code == sqlite3.ErrConstraint && sqliteErr.ExtendedCode == sqlite3.ErrConstraintForeignKey
+	}
 	return strings.Contains(err.Error(), "FOREIGN KEY constraint failed")
+}
+
+func containsAll(s string, needles []string) bool {
+	for _, n := range needles {
+		if !strings.Contains(s, n) {
+			return false
+		}
+	}
+	return true
 }
 
 // ClampLimit returns limit when it is positive, otherwise fallback. Used by

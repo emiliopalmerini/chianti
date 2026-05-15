@@ -1,6 +1,7 @@
 package id_test
 
 import (
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -26,12 +27,26 @@ func TestNewUUIDFormat(t *testing.T) {
 	}
 }
 
-func TestUUIDMonotonic(t *testing.T) {
+func TestUUIDTimeSortableAcrossMilliseconds(t *testing.T) {
 	t0 := time.Unix(1700000000, 0)
 	t1 := t0.Add(time.Millisecond)
 	u0 := id.NewUUIDAt(t0, strings.NewReader("\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"))
 	u1 := id.NewUUIDAt(t1, strings.NewReader("\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"))
 	if !(u0 < u1) {
 		t.Errorf("expected %q < %q", u0, u1)
+	}
+}
+
+func TestNewUUIDMonotonicForRapidCalls(t *testing.T) {
+	ids := make([]string, 256)
+	for i := range ids {
+		ids[i] = id.NewUUID()
+	}
+	sorted := append([]string(nil), ids...)
+	sort.Strings(sorted)
+	for i := range ids {
+		if ids[i] != sorted[i] {
+			t.Fatalf("ids are not lexicographically monotonic at %d: got %q, sorted has %q", i, ids[i], sorted[i])
+		}
 	}
 }

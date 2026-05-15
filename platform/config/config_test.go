@@ -2,6 +2,8 @@ package config_test
 
 import (
 	"encoding/base64"
+	"errors"
+	"io"
 	"reflect"
 	"testing"
 
@@ -38,8 +40,14 @@ func TestGetEnv(t *testing.T) {
 }
 
 func TestRandomKey(t *testing.T) {
-	k1 := config.RandomKey()
-	k2 := config.RandomKey()
+	k1, err := config.RandomKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	k2, err := config.RandomKey()
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	if len(k1) != 44 {
 		t.Errorf("len = %d, want 44 (base64 of 32 bytes)", len(k1))
@@ -53,6 +61,16 @@ func TestRandomKey(t *testing.T) {
 	}
 	if k1 == k2 {
 		t.Error("two calls returned the same key (entropy?)")
+	}
+}
+
+func TestRandomKeyWithSourceReturnsReadError(t *testing.T) {
+	_, err := config.RandomKeyWithSource(failingReader{})
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !errors.Is(err, io.ErrUnexpectedEOF) {
+		t.Fatalf("got %v, want %v", err, io.ErrUnexpectedEOF)
 	}
 }
 
@@ -103,4 +121,10 @@ func TestParseAdminSeeds(t *testing.T) {
 			}
 		})
 	}
+}
+
+type failingReader struct{}
+
+func (failingReader) Read([]byte) (int, error) {
+	return 0, io.ErrUnexpectedEOF
 }

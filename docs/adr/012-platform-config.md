@@ -52,7 +52,10 @@ func GetEnv(key, def string) string
 // stdlib StdEncoding (44 chars). Suitable as a CSRF key, JWT
 // signing key, or session secret. Sites that need other key
 // sizes should not use this helper.
-func RandomKey() string
+func RandomKey() (string, error)
+
+// RandomKeyWithSource is RandomKey with an injectable random source.
+func RandomKeyWithSource(r io.Reader) (string, error)
 
 // AdminSeed is one entry of the ADMIN_SEEDS env var. The
 // expected env format is "user1:email1:pw1,user2:email2:pw2".
@@ -75,6 +78,8 @@ func ParseAdminSeeds(raw string) []AdminSeed
 - **`RandomKey()` senza parametro `n int`**: ITdG usa 32 byte per
   tre cose diverse (CSRF, JWT, session). 32 è la convenzione del
   kit. Se in futuro un sito chiede un'altra size, ADR dedicato.
+  La funzione ritorna errore perché il fallimento della sorgente
+  crittografica non deve essere silenzioso.
 - **`ParseAdminSeeds` silently-skip**: preservato il comportamento
   ITdG attuale. Il `Validate()` di ogni sito decide se zero seed
   è accettabile (ITdG: no in production). Un parser strict
