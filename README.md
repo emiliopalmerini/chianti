@@ -1,9 +1,8 @@
 # chianti
 
-Kit Go condiviso per i siti di `~/src/people-site/`. Il suo scopo è
-rendere esplicita e riusabile l'architettura che voglio usare nei siti:
-contratti piccoli, primitivi di kernel, helper stdlib-friendly e pattern
-testati.
+Kit Go condiviso per piccoli e medi siti di professionisti italiani. Il suo
+scopo è rendere esplicita e riusabile un'architettura basata su contratti
+piccoli, primitivi di kernel, helper stdlib-friendly e pattern testati.
 
 `chianti` non è un bundle di integrazioni. I siti consumer restano
 responsabili dei loro adapter concreti: router, driver SQLite, sessioni,
@@ -34,7 +33,8 @@ In pratica:
 
 ## Dev locale cross-repo
 
-Crea un `go.work` (non committato) in `~/src/people-site/`:
+Crea un `go.work` locale e non committato fuori dal repo quando devi lavorare
+insieme a uno o più consumer:
 
 ```
 go 1.26.1
