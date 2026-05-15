@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"html/template"
 	"log/slog"
 	"mime"
@@ -48,26 +49,54 @@ type CSP struct {
 	ObjectSrc  []string
 }
 
-// String renders the CSP as a single-line directive string suitable for the
-// Content-Security-Policy response header.
-func (c CSP) String() string {
+// HeaderValue renders the CSP as a single-line directive string suitable for
+// the Content-Security-Policy response header.
+func (c CSP) HeaderValue() (string, error) {
 	parts := make([]string, 0, 9)
-	add := func(name string, vals []string) {
+	add := func(name string, vals []string) error {
 		if len(vals) == 0 {
-			return
+			return nil
+		}
+		for _, v := range vals {
+			if strings.TrimSpace(v) == "" {
+				return fmt.Errorf("csp %s contains empty source", name)
+			}
+			if strings.ContainsAny(v, ";\r\n") {
+				return fmt.Errorf("csp %s contains invalid source %q", name, v)
+			}
 		}
 		parts = append(parts, name+" "+strings.Join(vals, " "))
+		return nil
 	}
-	add("default-src", c.DefaultSrc)
-	add("script-src", c.ScriptSrc)
-	add("style-src", c.StyleSrc)
-	add("img-src", c.ImgSrc)
-	add("connect-src", c.ConnectSrc)
-	add("font-src", c.FontSrc)
-	add("frame-src", c.FrameSrc)
-	add("media-src", c.MediaSrc)
-	add("object-src", c.ObjectSrc)
-	return strings.Join(parts, "; ")
+	for _, directive := range []struct {
+		name string
+		vals []string
+	}{
+		{"default-src", c.DefaultSrc},
+		{"script-src", c.ScriptSrc},
+		{"style-src", c.StyleSrc},
+		{"img-src", c.ImgSrc},
+		{"connect-src", c.ConnectSrc},
+		{"font-src", c.FontSrc},
+		{"frame-src", c.FrameSrc},
+		{"media-src", c.MediaSrc},
+		{"object-src", c.ObjectSrc},
+	} {
+		if err := add(directive.name, directive.vals); err != nil {
+			return "", err
+		}
+	}
+	return strings.Join(parts, "; "), nil
+}
+
+// String renders the CSP as a single-line directive string. Invalid source
+// expressions render as an empty string; use HeaderValue when errors matter.
+func (c CSP) String() string {
+	v, err := c.HeaderValue()
+	if err != nil {
+		return ""
+	}
+	return v
 }
 
 // NewRouter builds the base chi router with the platform middleware
@@ -123,7 +152,10 @@ func securityHeaders(production bool, override *CSP) func(http.Handler) http.Han
 	if override != nil {
 		csp = *override
 	}
-	cspHeader := csp.String()
+	cspHeader, err := csp.HeaderValue()
+	if err != nil {
+		cspHeader, _ = defaultCSP().HeaderValue()
+	}
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			h := w.Header()

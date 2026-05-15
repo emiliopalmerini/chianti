@@ -73,6 +73,33 @@ func TestCSPString_omitsEmptyDirectives(t *testing.T) {
 	}
 }
 
+func TestCSPStringRejectsInvalidSource(t *testing.T) {
+	cases := []struct {
+		name string
+		csp  httpx.CSP
+	}{
+		{
+			name: "empty source",
+			csp:  httpx.CSP{DefaultSrc: []string{"'self'", ""}},
+		},
+		{
+			name: "semicolon injection",
+			csp:  httpx.CSP{ScriptSrc: []string{"'self'; report-uri https://evil.example/report"}},
+		},
+		{
+			name: "newline injection",
+			csp:  httpx.CSP{ImgSrc: []string{"'self'\nX-Evil: yes"}},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := tc.csp.HeaderValue(); err == nil {
+				t.Fatal("expected invalid CSP source error, got nil")
+			}
+		})
+	}
+}
+
 func TestNewRouterSetsSecurityHeaders(t *testing.T) {
 	for _, prod := range []bool{false, true} {
 		t.Run(map[bool]string{false: "dev", true: "prod"}[prod], func(t *testing.T) {
