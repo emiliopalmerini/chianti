@@ -109,12 +109,21 @@ func TestRunSkipsAppliedMigrations(t *testing.T) {
 }
 
 func TestRunFailsOnMalformedFilename(t *testing.T) {
-	bad := fstest.MapFS{
-		"sql/notanumber_foo.up.sql": &fstest.MapFile{Data: []byte("CREATE TABLE x (id INTEGER);")},
+	cases := map[string]string{
+		"not numeric": "notanumber_foo.up.sql",
+		"not padded":  "1_foo.up.sql",
+		"no suffix":   "000001.up.sql",
 	}
-	db := openMem(t)
-	if err := migrations.Run(db.DB, bad, "sql"); err == nil {
-		t.Error("expected error for malformed filename, got nil")
+	for name, filename := range cases {
+		t.Run(name, func(t *testing.T) {
+			bad := fstest.MapFS{
+				"sql/" + filename: &fstest.MapFile{Data: []byte("CREATE TABLE x (id INTEGER);")},
+			}
+			db := openMem(t)
+			if err := migrations.Run(db.DB, bad, "sql"); err == nil {
+				t.Error("expected error for malformed filename, got nil")
+			}
+		})
 	}
 }
 

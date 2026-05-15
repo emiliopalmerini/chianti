@@ -16,8 +16,8 @@ import (
 
 // Run applies pending .up.sql files from fsys[dir] to db, in numeric version
 // order, in a transaction per file. Each applied version is recorded in
-// schema_migrations. Re-running is idempotent. The version is parsed as the
-// prefix before the first underscore: e.g. "000003_documents.up.sql" -> 3.
+// schema_migrations. Re-running is idempotent. Filenames must use a six-digit
+// numeric prefix before the first underscore: e.g. "000003_documents.up.sql".
 func Run(db *sql.DB, fsys fs.FS, dir string) error {
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS schema_migrations (
 		version INTEGER PRIMARY KEY,
@@ -104,6 +104,14 @@ func parseVersion(name string) (int, error) {
 	head, _, ok := strings.Cut(name, "_")
 	if !ok {
 		return 0, fmt.Errorf("migration %q missing version prefix", name)
+	}
+	if len(head) != 6 {
+		return 0, fmt.Errorf("migration %q: version prefix must be six digits", name)
+	}
+	for _, r := range head {
+		if r < '0' || r > '9' {
+			return 0, fmt.Errorf("migration %q: version prefix must be six digits", name)
+		}
 	}
 	v, err := strconv.Atoi(head)
 	if err != nil {

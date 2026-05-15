@@ -60,14 +60,14 @@ package migrations
 // Run applies pending .up.sql files from fsys[dir] to db, in
 // numeric version order, in a transaction per file. Each applied
 // version is recorded in schema_migrations. Re-running is
-// idempotent. The version is parsed as the prefix before the first
-// underscore: e.g. "000003_documents.up.sql" -> version 3.
+// idempotent. Filenames must use a six-digit numeric prefix before
+// the first underscore: e.g. "000003_documents.up.sql".
 func Run(db *sql.DB, fsys fs.FS, dir string) error
 ```
 
-Il nome del file deve essere `NNN_*.up.sql` (la parte prima del
-primo underscore deve essere un intero parsabile). I file `.down.sql`
-sono ignorati dal runner.
+Il nome del file deve essere `NNNNNN_*.up.sql` (la parte prima del
+primo underscore deve essere un intero parsabile su sei cifre). I file
+`.down.sql` sono ignorati dal runner.
 
 ### Test
 
