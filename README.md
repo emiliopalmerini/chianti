@@ -7,7 +7,7 @@ di dominio.
 ## Status
 
 Pre-1.0. Breaking change ammessi senza procedura formale, comunicati
-nel CHANGELOG quando ci sarà.
+nel [`CHANGELOG.md`](CHANGELOG.md).
 
 ## Scope
 
