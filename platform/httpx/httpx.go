@@ -10,7 +10,9 @@ import (
 	"errors"
 	"html/template"
 	"log/slog"
+	"mime"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -261,7 +263,22 @@ func wantsJSON(r *http.Request) bool {
 	if strings.HasPrefix(r.URL.Path, "/api/") {
 		return true
 	}
-	return strings.Contains(r.Header.Get("Accept"), "application/json")
+	for _, raw := range strings.Split(r.Header.Get("Accept"), ",") {
+		mediaType, params, err := mime.ParseMediaType(strings.TrimSpace(raw))
+		if err != nil {
+			continue
+		}
+		if q, ok := params["q"]; ok {
+			weight, err := strconv.ParseFloat(q, 64)
+			if err != nil || weight <= 0 {
+				continue
+			}
+		}
+		if mediaType == "application/json" || strings.HasSuffix(mediaType, "+json") {
+			return true
+		}
+	}
+	return false
 }
 
 func jsonString(s string) string {

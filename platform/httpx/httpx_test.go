@@ -248,6 +248,24 @@ func TestRenderErrorJSON(t *testing.T) {
 			t.Errorf("Content-Type = %q, want application/json", got)
 		}
 	})
+	t.Run("weighted-json", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/page", nil)
+		req.Header.Set("Accept", "text/html;q=0.5, application/json;q=0.9")
+		rec := httptest.NewRecorder()
+		httpx.RenderError(rec, req, apperror.Conflict("dup"))
+		if got := rec.Result().Header.Get("Content-Type"); got != "application/json" {
+			t.Errorf("Content-Type = %q, want application/json", got)
+		}
+	})
+	t.Run("invalid-json-substring", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/page", nil)
+		req.Header.Set("Accept", "text/application/jsonish")
+		rec := httptest.NewRecorder()
+		httpx.RenderError(rec, req, apperror.Conflict("dup"))
+		if got := rec.Result().Header.Get("Content-Type"); !strings.HasPrefix(got, "text/plain") {
+			t.Errorf("Content-Type = %q, want text/plain", got)
+		}
+	})
 	t.Run("plain-default", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/page", nil)
 		rec := httptest.NewRecorder()

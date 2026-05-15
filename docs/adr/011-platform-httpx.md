@@ -88,8 +88,8 @@ func BucketLimiter(rps float64, burst int) func(http.Handler) http.Handler
 
 // RenderError translates an error (including *apperror.Error) into
 // an HTTP response. Content-type negotiation: anything under /api/
-// or with Accept: application/json gets a JSON body; everything
-// else gets text/plain.
+// or with an Accept media type of application/json gets a JSON body;
+// everything else gets text/plain.
 func RenderError(w http.ResponseWriter, r *http.Request, err error)
 ```
 
@@ -157,8 +157,8 @@ Suite shippata da chianti (ITdG ha 0 test su httpx oggi):
    NotFound→404, Validation→422, Conflict→409, Unauthorized→401,
    Forbidden→403, plain `errors.New`→500.
 8. `TestRenderErrorJSON` — branch JSON: path `/api/foo` → JSON
-   body; `Accept: application/json` su path qualsiasi → JSON body;
-   altrimenti text/plain.
+   body; `Accept: application/json` o header pesato equivalente su
+   path qualsiasi → JSON body; altrimenti text/plain.
 9. `httptest.TestCSRFBypassInjectsNoOpField` — il bypass piazza in
    ctx una `CSRFField` che ritorna stringa vuota, mountabile come
    middleware al posto di quello reale.
