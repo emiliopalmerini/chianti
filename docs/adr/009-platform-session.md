@@ -2,7 +2,9 @@
 
 ## Status
 
-Accepted
+Superseded by [ADR-013](013-kit-di-enforcement-architetturale.md). Concrete
+session manager adapters now belong in consumer sites by default. Historical
+context remains valid.
 
 ## Context
 

@@ -1,9 +1,8 @@
 package httpx_test
 
 import (
-	"encoding/base64"
-	"encoding/hex"
 	"errors"
+	"html/template"
 	"io"
 	"log/slog"
 	"net/http"
@@ -17,22 +16,24 @@ import (
 
 func newTestRouter(t *testing.T, production bool) http.Handler {
 	t.Helper()
-	r := httpx.NewRouter(httpx.ServerDeps{
-		Production: production,
-		Logger:     slog.New(slog.NewTextHandler(io.Discard, nil)),
-	})
-	r.Get("/ok", func(w http.ResponseWriter, r *http.Request) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /ok", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	})
-	r.Get("/panic", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /panic", func(w http.ResponseWriter, r *http.Request) {
 		panic("boom")
 	})
-	return r
+	return httpx.NewHandler(httpx.ServerDeps{
+		Production: production,
+		Logger:     slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}, mux)
 }
 
 func TestCSPOverride_renders(t *testing.T) {
-	r := httpx.NewRouter(httpx.ServerDeps{
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /x", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(200) })
+	h := httpx.NewHandler(httpx.ServerDeps{
 		Production: false,
 		Logger:     slog.New(slog.NewTextHandler(io.Discard, nil)),
 		CSP: &httpx.CSP{
@@ -40,11 +41,10 @@ func TestCSPOverride_renders(t *testing.T) {
 			ScriptSrc:  []string{"'self'", "https://unpkg.com", "https://cdnjs.cloudflare.com"},
 			ImgSrc:     []string{"'self'", "data:", "https://upload.wikimedia.org"},
 		},
-	})
-	r.Get("/x", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(200) })
+	}, mux)
 
 	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/x", nil))
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/x", nil))
 
 	got := rec.Header().Get("Content-Security-Policy")
 	for _, want := range []string{
@@ -100,7 +100,7 @@ func TestCSPStringRejectsInvalidSource(t *testing.T) {
 	}
 }
 
-func TestNewRouterSetsSecurityHeaders(t *testing.T) {
+func TestNewHandlerSetsSecurityHeaders(t *testing.T) {
 	for _, prod := range []bool{false, true} {
 		t.Run(map[bool]string{false: "dev", true: "prod"}[prod], func(t *testing.T) {
 			h := newTestRouter(t, prod)
@@ -138,7 +138,7 @@ func TestNewRouterSetsSecurityHeaders(t *testing.T) {
 	}
 }
 
-func TestNewRouterRecoversPanic(t *testing.T) {
+func TestNewHandlerRecoversPanic(t *testing.T) {
 	h := newTestRouter(t, false)
 	req := httptest.NewRequest(http.MethodGet, "/panic", nil)
 	rec := httptest.NewRecorder()
@@ -148,42 +148,20 @@ func TestNewRouterRecoversPanic(t *testing.T) {
 	}
 }
 
-func TestCSRFMiddlewareDecodesKey(t *testing.T) {
-	raw := strings.Repeat("k", 32)
-	cases := []struct {
-		name    string
-		key     string
-		wantErr bool
-	}{
-		{"raw32", raw, false},
-		{"base64", base64.StdEncoding.EncodeToString([]byte(raw)), false},
-		{"hex", hex.EncodeToString([]byte(raw)), false},
-		{"too-short", "short", true},
-		{"garbage", "!!!not-base64-not-hex-and-not-32!!!", true},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			_, err := httpx.CSRFMiddleware(false, tc.key, "test_csrf")
-			if tc.wantErr && err == nil {
-				t.Fatalf("want error, got nil")
+func TestWithCSRFFieldInjectsField(t *testing.T) {
+	var got string
+	mw := func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			field := func(*http.Request) template.HTML {
+				return template.HTML(`<input type="hidden" name="csrf" value="test">`)
 			}
-			if !tc.wantErr && err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
+			next.ServeHTTP(w, r.WithContext(httpx.WithCSRFField(r.Context(), field)))
 		})
 	}
-}
-
-func TestCSRFMiddlewareInjectsField(t *testing.T) {
-	mw, err := httpx.CSRFMiddleware(false, strings.Repeat("k", 32), "test_csrf")
-	if err != nil {
-		t.Fatal(err)
-	}
-	var got string
 	h := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		f := httpx.CSRFFieldFromContext(r.Context())
 		if f == nil {
-			t.Fatal("CSRFField nil after middleware")
+			t.Fatal("CSRFField nil after injection")
 		}
 		got = string(f(r))
 		w.WriteHeader(http.StatusOK)

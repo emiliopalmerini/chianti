@@ -124,8 +124,6 @@ oppure lasciare l'adapter al consumer.
 - `platform/italy`: validatori CF, CAP, telefono.
 - `platform/httpx`: middleware `net/http`, security headers, request logger,
   rendering errori.
-- `platform/session`: solo contratti o convenzioni se necessari; adapter
-  concreti nei consumer.
 - `platform/email`: interfaccia `Sender` e adapter HTTP stdlib se il confine
   resta stretto.
 - `platform/config`: helper env e generazione chiavi.

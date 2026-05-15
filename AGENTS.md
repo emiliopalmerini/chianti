@@ -82,8 +82,6 @@ static assets, consumer SQL schemas, or consumer-specific wiring.
 - `platform/httpx`: net/http middleware primitives and HTTP error rendering.
 - `platform/italy`: Italian data validators.
 - `platform/migrations`: numbered SQL migration runner.
-- `platform/session`: session contracts only if kept; concrete session manager
-  adapters belong in consumers by default.
 - `docs/adr`: architectural decisions. Read the relevant ADR before changing a
   package boundary.
 

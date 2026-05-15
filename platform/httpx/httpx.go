@@ -1,29 +1,27 @@
-// Package httpx provides shared HTTP plumbing: chi router constructor,
-// middleware chain, rate limiter, CSRF wiring, and error rendering for
-// *apperror.Error. Slice HTTP adapters mount onto the returned router.
+// Package httpx provides net/http helpers: middleware composition, request
+// logging, panic recovery, security headers, rate limiting, CSRF field
+// contracts, and error rendering for *apperror.Error. Concrete routers and
+// CSRF middleware live in consumer sites.
 package httpx
 
 import (
 	"context"
-	"encoding/base64"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"html/template"
 	"log/slog"
 	"mime"
 	"net/http"
+	"runtime/debug"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
-
-	"github.com/go-chi/chi/v5"
-	"github.com/go-chi/chi/v5/middleware"
-	"github.com/gorilla/csrf"
-	"golang.org/x/time/rate"
 
 	"github.com/emiliopalmerini/chianti/kernel/apperror"
 )
+
+type Middleware func(http.Handler) http.Handler
 
 type ServerDeps struct {
 	Production bool
@@ -99,30 +97,41 @@ func (c CSP) String() string {
 	return v
 }
 
-// NewRouter builds the base chi router with the platform middleware
-// stack: RequestID, RealIP (production only), request logger, Recoverer,
-// Compress(5), security headers (with HSTS in production).
-func NewRouter(deps ServerDeps) chi.Router {
-	r := chi.NewRouter()
-	r.Use(middleware.RequestID)
-	if deps.Production {
-		r.Use(middleware.RealIP)
+// BaseMiddleware returns the platform middleware stack in request order:
+// request logging, panic recovery, and security headers. Consumers apply it to
+// their router of choice.
+func BaseMiddleware(deps ServerDeps) []Middleware {
+	return []Middleware{
+		RequestLogger(deps.Logger),
+		Recoverer(deps.Logger),
+		SecurityHeaders(deps.Production, deps.CSP),
 	}
-	r.Use(requestLogger(deps.Logger))
-	r.Use(middleware.Recoverer)
-	r.Use(middleware.Compress(5))
-	r.Use(securityHeaders(deps.Production, deps.CSP))
-	return r
 }
 
-func requestLogger(logger *slog.Logger) func(http.Handler) http.Handler {
+// Wrap applies middleware to h in the same order as net/http requests pass
+// through it: Wrap(h, a, b) runs a before b before h.
+func Wrap(h http.Handler, middleware ...Middleware) http.Handler {
+	for i := len(middleware) - 1; i >= 0; i-- {
+		h = middleware[i](h)
+	}
+	return h
+}
+
+// NewHandler applies BaseMiddleware to h.
+func NewHandler(deps ServerDeps, h http.Handler) http.Handler {
+	return Wrap(h, BaseMiddleware(deps)...)
+}
+
+// RequestLogger logs method, path, response status, bytes written, and
+// duration after the wrapped handler completes.
+func RequestLogger(logger *slog.Logger) Middleware {
 	if logger == nil {
 		logger = slog.Default()
 	}
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			start := time.Now()
-			ww := middleware.NewWrapResponseWriter(w, r.ProtoMajor)
+			ww := &responseRecorder{ResponseWriter: w, status: http.StatusOK}
 			next.ServeHTTP(ww, r)
 			logger.Info("http",
 				"method", r.Method,
@@ -130,8 +139,55 @@ func requestLogger(logger *slog.Logger) func(http.Handler) http.Handler {
 				"status", ww.Status(),
 				"bytes", ww.BytesWritten(),
 				"duration_ms", time.Since(start).Milliseconds(),
-				"request_id", middleware.GetReqID(r.Context()),
 			)
+		})
+	}
+}
+
+type responseRecorder struct {
+	http.ResponseWriter
+	status int
+	bytes  int
+	wrote  bool
+}
+
+func (r *responseRecorder) WriteHeader(status int) {
+	if r.wrote {
+		return
+	}
+	r.wrote = true
+	r.status = status
+	r.ResponseWriter.WriteHeader(status)
+}
+
+func (r *responseRecorder) Write(p []byte) (int, error) {
+	if !r.wrote {
+		r.wrote = true
+	}
+	n, err := r.ResponseWriter.Write(p)
+	r.bytes += n
+	return n, err
+}
+
+func (r *responseRecorder) Status() int { return r.status }
+
+func (r *responseRecorder) BytesWritten() int { return r.bytes }
+
+// Recoverer converts panics into HTTP 500 responses and logs the stack. It
+// must wrap handlers that have not already committed a response.
+func Recoverer(logger *slog.Logger) Middleware {
+	if logger == nil {
+		logger = slog.Default()
+	}
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			defer func() {
+				if v := recover(); v != nil {
+					logger.Error("http panic", "panic", v, "stack", string(debug.Stack()))
+					http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+				}
+			}()
+			next.ServeHTTP(w, r)
 		})
 	}
 }
@@ -147,7 +203,9 @@ func defaultCSP() CSP {
 	}
 }
 
-func securityHeaders(production bool, override *CSP) func(http.Handler) http.Handler {
+// SecurityHeaders sets the shared defensive response headers. HSTS is only
+// enabled for production because it is sticky in browsers.
+func SecurityHeaders(production bool, override *CSP) Middleware {
 	csp := defaultCSP()
 	if override != nil {
 		csp = *override
@@ -171,49 +229,20 @@ func securityHeaders(production bool, override *CSP) func(http.Handler) http.Han
 	}
 }
 
-// CSRFField matches the signature gorilla/csrf.TemplateField produces, so
-// real middleware and tests plug in interchangeably.
+// CSRFField is the template hook consumer CSRF middleware can expose to views.
 type CSRFField = func(*http.Request) template.HTML
 
 type csrfFieldKey struct{}
 
 // WithCSRFField returns a copy of ctx carrying f as the CSRFField that
-// CSRFFieldFromContext will return. CSRFMiddleware uses this internally;
-// adjacent packages (test helpers) can use it to install a stub field
-// without depending on the context key type.
+// CSRFFieldFromContext will return. Consumer CSRF middleware can use this to
+// expose template fields without tying chianti to a concrete CSRF library.
 func WithCSRFField(ctx context.Context, f CSRFField) context.Context {
 	return context.WithValue(ctx, csrfFieldKey{}, f)
 }
 
-// CSRFMiddleware returns gorilla/csrf configured for this app: SameSite=Lax,
-// Path="/", Secure when production, with the given cookieName. The
-// csrfKeyEncoded value is accepted as raw 32 bytes, base64, or hex.
-func CSRFMiddleware(production bool, csrfKeyEncoded, cookieName string) (func(http.Handler) http.Handler, error) {
-	key, err := decodeCSRFKey(csrfKeyEncoded)
-	if err != nil {
-		return nil, err
-	}
-	mw := csrf.Protect(key,
-		csrf.Secure(production),
-		csrf.SameSite(csrf.SameSiteLaxMode),
-		csrf.Path("/"),
-		csrf.CookieName(cookieName),
-	)
-	plaintext := !production
-	return func(next http.Handler) http.Handler {
-		wrapped := mw(next)
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			ctx := WithCSRFField(r.Context(), CSRFField(csrf.TemplateField))
-			if plaintext {
-				ctx = context.WithValue(ctx, csrf.PlaintextHTTPContextKey, true)
-			}
-			wrapped.ServeHTTP(w, r.WithContext(ctx))
-		})
-	}, nil
-}
-
 // CSRFFieldFromContext returns the csrf.TemplateField function stashed by
-// CSRFMiddleware, or a no-op when the middleware is not installed.
+// consumer middleware, or a no-op when no field is installed.
 func CSRFFieldFromContext(ctx context.Context) CSRFField {
 	if v, ok := ctx.Value(csrfFieldKey{}).(CSRFField); ok && v != nil {
 		return v
@@ -221,30 +250,11 @@ func CSRFFieldFromContext(ctx context.Context) CSRFField {
 	return func(*http.Request) template.HTML { return "" }
 }
 
-// CSRFTokenFromRequest returns the raw CSRF token for the current request,
-// suitable for embedding in a <meta name="csrf-token"> tag.
-func CSRFTokenFromRequest(r *http.Request) string {
-	return csrf.Token(r)
-}
-
-func decodeCSRFKey(s string) ([]byte, error) {
-	if len(s) == 32 {
-		return []byte(s), nil
-	}
-	if b, err := base64.StdEncoding.DecodeString(s); err == nil && len(b) == 32 {
-		return b, nil
-	}
-	if b, err := hex.DecodeString(s); err == nil && len(b) == 32 {
-		return b, nil
-	}
-	return nil, errors.New("CSRF key must decode to 32 bytes (raw, base64, or hex)")
-}
-
 // BucketLimiter returns a token-bucket rate-limit middleware at rps requests
 // per second with the given burst. Limit state is global (single bucket for
 // all requests through the middleware); per-IP buckets are a slice concern.
-func BucketLimiter(rps float64, burst int) func(http.Handler) http.Handler {
-	lim := rate.NewLimiter(rate.Limit(rps), burst)
+func BucketLimiter(rps float64, burst int) Middleware {
+	lim := newTokenBucket(rps, burst)
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if !lim.Allow() {
@@ -254,6 +264,48 @@ func BucketLimiter(rps float64, burst int) func(http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 		})
 	}
+}
+
+type tokenBucket struct {
+	mu       sync.Mutex
+	rps      float64
+	capacity float64
+	tokens   float64
+	last     time.Time
+}
+
+func newTokenBucket(rps float64, burst int) *tokenBucket {
+	if rps <= 0 {
+		rps = 1
+	}
+	if burst <= 0 {
+		burst = 1
+	}
+	now := time.Now()
+	return &tokenBucket{
+		rps:      rps,
+		capacity: float64(burst),
+		tokens:   float64(burst),
+		last:     now,
+	}
+}
+
+func (b *tokenBucket) Allow() bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	now := time.Now()
+	elapsed := now.Sub(b.last).Seconds()
+	b.last = now
+	b.tokens += elapsed * b.rps
+	if b.tokens > b.capacity {
+		b.tokens = b.capacity
+	}
+	if b.tokens < 1 {
+		return false
+	}
+	b.tokens--
+	return true
 }
 
 // RenderError translates an error (including *apperror.Error) into an HTTP

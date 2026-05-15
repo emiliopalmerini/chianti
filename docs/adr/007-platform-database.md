@@ -2,7 +2,8 @@
 
 ## Status
 
-Accepted
+Superseded by [ADR-013](013-kit-di-enforcement-architetturale.md) for the
+dependency-owning SQLite adapter direction. Historical context remains valid.
 
 ## Context
 

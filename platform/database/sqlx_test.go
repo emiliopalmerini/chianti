@@ -3,6 +3,7 @@ package database_test
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"errors"
 	"testing"
 
@@ -69,30 +70,6 @@ func TestIsUniqueConstraint_MatchesAndFiltersByNeedle(t *testing.T) {
 	}
 }
 
-func TestIsUniqueConstraint_MatchesRealSQLiteError(t *testing.T) {
-	db, err := database.Open(":memory:")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-	if _, err := db.Exec("CREATE TABLE users (email TEXT UNIQUE)"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec("INSERT INTO users(email) VALUES ('a@example.com')"); err != nil {
-		t.Fatal(err)
-	}
-	_, err = db.Exec("INSERT INTO users(email) VALUES ('a@example.com')")
-	if err == nil {
-		t.Fatal("expected unique constraint error, got nil")
-	}
-	if !database.IsUniqueConstraint(err, "users.email") {
-		t.Fatalf("expected typed unique match, got %v", err)
-	}
-	if database.IsUniqueConstraint(err, "users.name") {
-		t.Fatal("expected column filter to reject non-matching column")
-	}
-}
-
 func TestIsForeignKeyViolation_DetectsTypicalMessage(t *testing.T) {
 	if !database.IsForeignKeyViolation(errors.New("FOREIGN KEY constraint failed")) {
 		t.Error("expected FK match")
@@ -102,27 +79,6 @@ func TestIsForeignKeyViolation_DetectsTypicalMessage(t *testing.T) {
 	}
 	if database.IsForeignKeyViolation(errors.New("UNIQUE failed")) {
 		t.Error("non-FK error must not match")
-	}
-}
-
-func TestIsForeignKeyViolation_MatchesRealSQLiteError(t *testing.T) {
-	db, err := database.Open(":memory:")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-	if _, err := db.Exec("CREATE TABLE parents (id INTEGER PRIMARY KEY)"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec("CREATE TABLE children (parent_id INTEGER REFERENCES parents(id))"); err != nil {
-		t.Fatal(err)
-	}
-	_, err = db.Exec("INSERT INTO children(parent_id) VALUES (42)")
-	if err == nil {
-		t.Fatal("expected foreign key error, got nil")
-	}
-	if !database.IsForeignKeyViolation(err) {
-		t.Fatalf("expected typed foreign-key match, got %v", err)
 	}
 }
 
@@ -138,59 +94,45 @@ func TestClampLimit_PositiveAndNonPositive(t *testing.T) {
 	}
 }
 
-func TestWithTx_CommitOnSuccess(t *testing.T) {
-	db, err := database.Open(":memory:")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-	if _, err := db.Exec("CREATE TABLE t (v INTEGER)"); err != nil {
-		t.Fatal(err)
-	}
-
-	err = database.WithTx(context.Background(), db.DB, func(tx *sql.Tx) error {
-		_, err := tx.Exec("INSERT INTO t(v) VALUES (1)")
-		return err
-	})
-	if err != nil {
-		t.Fatalf("WithTx: %v", err)
-	}
-
-	var count int
-	if err := db.QueryRow("SELECT COUNT(*) FROM t").Scan(&count); err != nil {
-		t.Fatal(err)
-	}
-	if count != 1 {
-		t.Errorf("count after commit = %d, want 1", count)
-	}
-}
-
-func TestWithTx_RollbackOnError(t *testing.T) {
-	db, err := database.Open(":memory:")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-	if _, err := db.Exec("CREATE TABLE t (v INTEGER)"); err != nil {
-		t.Fatal(err)
-	}
-
+func TestWithTx_ReturnsCallbackError(t *testing.T) {
 	sentinel := errors.New("boom")
-	err = database.WithTx(context.Background(), db.DB, func(tx *sql.Tx) error {
-		if _, err := tx.Exec("INSERT INTO t(v) VALUES (1)"); err != nil {
-			return err
-		}
+	db := sql.OpenDB(fakeConnector{})
+	defer db.Close()
+
+	err := database.WithTx(context.Background(), db, func(tx *sql.Tx) error {
 		return sentinel
 	})
 	if !errors.Is(err, sentinel) {
 		t.Fatalf("WithTx: got %v, want %v", err, sentinel)
 	}
-
-	var count int
-	if err := db.QueryRow("SELECT COUNT(*) FROM t").Scan(&count); err != nil {
-		t.Fatal(err)
-	}
-	if count != 0 {
-		t.Errorf("count after rollback = %d, want 0", count)
-	}
 }
+
+type fakeConnector struct{}
+
+func (fakeConnector) Connect(context.Context) (driver.Conn, error) {
+	return fakeConn{}, nil
+}
+
+func (fakeConnector) Driver() driver.Driver { return fakeDriver{} }
+
+type fakeDriver struct{}
+
+func (fakeDriver) Open(string) (driver.Conn, error) { return fakeConn{}, nil }
+
+type fakeConn struct{}
+
+func (fakeConn) Prepare(string) (driver.Stmt, error) { return nil, errors.New("not implemented") }
+
+func (fakeConn) Close() error { return nil }
+
+func (fakeConn) Begin() (driver.Tx, error) { return fakeTx{}, nil }
+
+func (fakeConn) BeginTx(context.Context, driver.TxOptions) (driver.Tx, error) {
+	return fakeTx{}, nil
+}
+
+type fakeTx struct{}
+
+func (fakeTx) Commit() error { return nil }
+
+func (fakeTx) Rollback() error { return nil }

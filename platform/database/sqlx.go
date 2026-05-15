@@ -1,15 +1,12 @@
-// Package database also exposes small helpers that every slice's sqlite
-// adapter used to re-implement: a row/Rows scanner shim and nullable
-// conversion helpers between *T and sql.NullX.
+// Package database exposes small database/sql helpers that every slice's
+// adapter would otherwise re-implement: a row/Rows scanner shim, nullable
+// conversion helpers, transaction handling, and shared query conventions.
 package database
 
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"strings"
-
-	"github.com/mattn/go-sqlite3"
 )
 
 // TimeFormat is the canonical on-disk representation for every time column
@@ -55,22 +52,13 @@ func NullInt64ToIntPtr(n sql.NullInt64) *int {
 	return &v
 }
 
-// IsUniqueConstraint reports whether err is a sqlite UNIQUE constraint
+// IsUniqueConstraint reports whether err looks like a UNIQUE constraint
 // violation. Extra substrings can be supplied to target a specific column
-// (e.g. IsUniqueConstraint(err, "events.slug")).
+// (e.g. IsUniqueConstraint(err, "events.slug")). Concrete database adapters
+// can provide stricter typed matching in consumer sites.
 func IsUniqueConstraint(err error, needles ...string) bool {
 	if err == nil {
 		return false
-	}
-	var sqliteErr sqlite3.Error
-	if errors.As(err, &sqliteErr) {
-		if sqliteErr.Code != sqlite3.ErrConstraint {
-			return false
-		}
-		if sqliteErr.ExtendedCode != sqlite3.ErrConstraintUnique && sqliteErr.ExtendedCode != sqlite3.ErrConstraintPrimaryKey {
-			return false
-		}
-		return containsAll(err.Error(), needles)
 	}
 	msg := err.Error()
 	if !strings.Contains(msg, "UNIQUE") {
@@ -79,15 +67,12 @@ func IsUniqueConstraint(err error, needles ...string) bool {
 	return containsAll(msg, needles)
 }
 
-// IsForeignKeyViolation reports whether err is a sqlite FOREIGN KEY
-// constraint violation.
+// IsForeignKeyViolation reports whether err looks like a FOREIGN KEY
+// constraint violation. Concrete database adapters can provide stricter typed
+// matching in consumer sites.
 func IsForeignKeyViolation(err error) bool {
 	if err == nil {
 		return false
-	}
-	var sqliteErr sqlite3.Error
-	if errors.As(err, &sqliteErr) {
-		return sqliteErr.Code == sqlite3.ErrConstraint && sqliteErr.ExtendedCode == sqlite3.ErrConstraintForeignKey
 	}
 	return strings.Contains(err.Error(), "FOREIGN KEY constraint failed")
 }
